@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Saltín: Plataforma - Demo Multiniveles</title>
+  <style>
+    :root{--bg:#7ec0ee;--ground:#5c3b1a;--platform:#8b5e3c;--hero:#ffcc00;--enemy:#ff6666;--coin:#ffd700;--flag:#ffffff}
+    html,body{height:100%;margin:0;font-family:system-ui,Arial;background:linear-gradient(#a8e0ff,#7ec0ee);}
+    #game-wrap{max-width:900px;margin:20px auto;padding:12px;background:rgba(255,255,255,0.3);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.15)}
+    header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+    header h1{font-size:18px;margin:0}
+    .controls{font-size:14px;color:#222}
+    canvas{display:block;width:100%;height:500px;background:linear-gradient(#87cefa,#b0e0e6);border-radius:8px}
+    .hud{display:flex;gap:12px;margin-top:8px;align-items:center}
+    .btn{padding:6px 10px;border-radius:6px;border:0;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,0.1);cursor:pointer}
+    .small{font-size:13px}
+  </style>
+</head>
+<body>
+  <div id="game-wrap">
+    <header>
+      <h1>Saltín: Plataforma — Multiniveles</h1>
+      <div class="controls">W / ↑ = Saltar · A / ← = Izquierda · D / → = Derecha</div>
+    </header>
+
+    <canvas id="game" width="1200" height="700"></canvas>
+
+    <div class="hud">
+      <div class="small">Mundo: <span id="world">1</span>-<span id="level">7</span></div>
+      <div class="small">Puntos: <span id="score">0</span></div>
+      <div class="small">Vidas: <span id="lives">3</span></div>
+      <button id="restart" class="btn small">Reiniciar</button>
+      <div style="flex:1"></div>
+      <div class="small">Personaje: <strong>pipo</strong></div>
+    </div>
+  </div>
+
+  <script>
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const livesEl = document.getElementById('lives');
+  const restartBtn = document.getElementById('restart');
+  const worldEl = document.getElementById('world');
+  const levelEl = document.getElementById('level');
+
+  const VIEW_WIDTH = canvas.width;
+  const VIEW_HEIGHT = canvas.height;
+
+  let keys = {};
+  let score = 0;
+  let lives = 3;
+  let currentWorld = 3;
+  let currentLevel = 3;
+
+  const gravity = 0.9;
+
+  class Rect {
+    constructor(x,y,w,h){Object.assign(this,{x,y,w,h});}
+    intersects(other){
+      return !(this.x+this.w < other.x || this.x > other.x+other.w || this.y+this.h < other.y || this.y > other.y+other.h);
+    }
+  }
+
+  class Player {
+    constructor(x,y){
+      this.x = x; this.y = y; this.w = 36; this.h = 48;
+      this.vx = 0; this.vy = 0;
+      this.onGround = false;
+      this.color = getComputedStyle(document.documentElement).getPropertyValue('--hero').trim() || '#ffcc00';
+      this.facing = 1;
+    }
+    rect(){return new Rect(this.x,this.y,this.w,this.h)}
+    update(platforms){
+      const accel = 0.9; const jumpPower = -18;
+      if (keys.ArrowLeft || keys.a || keys.A){ this.vx -= accel; this.facing = -1 }
+      if (keys.ArrowRight || keys.d || keys.D){ this.vx += accel; this.facing = 1 }
+      this.vx *= 0.86; if (Math.abs(this.vx) < 0.05) this.vx = 0;
+      this.vy += gravity; if (this.vy > 30) this.vy = 30;
+      if ((keys.w || keys.W || keys['ArrowUp']) && this.onGround){ this.vy = jumpPower; this.onGround = false }
+      this.x += this.vx; this.y += this.vy;
+      if (this.x < 0) this.x = 0; if (this.x + this.w > levelWidth) this.x = levelWidth - this.w;
+      this.onGround = false;
+      for (let p of platforms){
+        const r = this.rect();
+        if (r.intersects(p)){
+          const prevY = this.y - this.vy;
+          if (prevY + this.h <= p.y){
+            this.y = p.y - this.h; this.vy = 0; this.onGround = true;
+          } else if (this.x + this.w - this.vx <= p.x){
+            this.x = p.x - this.w; this.vx = 0;
+          } else if (this.x - this.vx >= p.x + p.w){
+            this.x = p.x + p.w; this.vx = 0;
+          } else {
+            this.y = p.y + p.h; this.vy = 0;
+          }
+        }
+      }
+    }
+    draw(ctx, cameraX){
+      const cx = Math.round(this.x - cameraX + this.w/2);
+      const cy = Math.round(this.y + 12);
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.beginPath(); ctx.ellipse(cx, this.y + this.h, this.w*0.5, 6, 0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = this.color;
+      ctx.fillRect(Math.round(this.x - cameraX), Math.round(this.y+16), this.w, this.h-16);
+      ctx.beginPath(); ctx.ellipse(cx, cy, 16, 16, 0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(cx + (this.facing*5), cy-2, 3, 0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#222'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy+3, 6, 0.15*Math.PI, 0.85*Math.PI); ctx.stroke();
+    }
+  }
+
+  class Enemy {
+    constructor(x,y,range){this.x=x;this.y=y;this.w=34;this.h=34;this.vx=1.4;this.range=range;this.startX=x;}
+    rect(){return new Rect(this.x,this.y,this.w,this.h)}
+    update(){
+      this.x += this.vx; if (this.x < this.startX - this.range || this.x > this.startX + this.range) this.vx *= -1;
+    }
+    draw(ctx,cameraX){
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--enemy').trim() || '#ff6666';
+      ctx.fillRect(Math.round(this.x-cameraX), Math.round(this.y), this.w, this.h);
+      ctx.fillStyle = '#222'; ctx.fillRect(Math.round(this.x-cameraX+6), this.y+8,6,6);
+      ctx.fillRect(Math.round(this.x-cameraX+20), this.y+8,6,6);
+    }
+  }
+
+  class Coin{
+    constructor(x,y){this.x=x;this.y=y;this.r=8;this.collected=false}
+    rect(){return new Rect(this.x-this.r,this.y-this.r,this.r*2,this.r*2)}
+    draw(ctx,cameraX){if(this.collected) return; ctx.beginPath(); ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--coin').trim()||'#ffd700'; ctx.ellipse(this.x-cameraX,this.y,this.r,this.r,0,0,Math.PI*2); ctx.fill(); ctx.strokeStyle='#b8860b'; ctx.lineWidth=1; ctx.stroke();}
+  }
+
+  class Flag {
+    constructor(x,y){this.x=x;this.y=y;this.w=20;this.h=80;}
+    rect(){return new Rect(this.x,this.y-this.h,this.w,this.h)}
+    draw(ctx,cameraX){
+      const bx = this.x-cameraX;
+      ctx.fillStyle = '#444'; ctx.fillRect(bx, this.y-this.h, 4, this.h);
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--flag').trim()||'#fff';
+      ctx.beginPath(); ctx.moveTo(bx+4,this.y-this.h+10); ctx.lineTo(bx+54,this.y-this.h+20); ctx.lineTo(bx+4,this.y-this.h+30); ctx.closePath(); ctx.fill();
+    }
+  }
+
+  let levelWidth = 3000;
+  let platforms = [];
+  let player;
+  let enemies = [];
+  let coins = [];
+  let flag;
+
+    const levels = {
+    1:[{ // Mundo 1 - Nivel 1
+      platforms:[[0,600,3000,100],[200,480,140,16],[600,360,160,16],[920,440,120,16],[1450,480,120,16],[2000,360,160,16],[2350,440,180,16],[2800,520,120,16]],
+      enemies:[[750,326,80],[1800,380,120],[2200,320,70]],
+      coins:[270,520,860,1180,1730,1990,2360,2700],
+      flag:[2900,600]
+    }],
+    2:[{ // Mundo 2 - Nivel 1
+      platforms:[[0,600,3200,100],[300,480,120,16],[640,420,120,16],[900,350,160,16],[1300,300,200,16],[1800,380,160,16],[2200,440,200,16],[2600,360,160,16],[3000,500,120,16]],
+      enemies:[[500,420,100],[1500,260,100],[2400,400,80],[2800,460,80]],
+      coins:[400,800,1400,2000,2500,2900],
+      flag:[3100,600]
+    }],
+    3:[{ // Mundo 3 - Nivel 1 (más difícil, plataformas más separadas)
+      platforms:[[0,600,3500,100],[400,480,160,16],[900,400,140,16],[1400,320,140,16],[1900,260,160,16],[2300,400,160,16],[2700,500,140,16],[3200,450,160,16]],
+      enemies:[[800,446,100],[1350,286,120],[2000,226,150],[2500,366,120],[3100,416,100]],
+      coins:[450,950,1450,1950,2400,2800,3300],
+      flag:[3400,600]
+    }],
+    4:[{ // Mundo 4 - Nivel 1 (nivel largo con muchos monstruos)
+      platforms:[[0,600,3800,100],[350,500,160,16],[700,420,180,16],[1200,360,200,16],[1600,300,200,16],[2100,380,180,16],[2500,460,200,16],[2900,400,160,16],[3400,500,200,16]],
+      enemies:[[600,466,120],[1100,326,150],[1700,266,120],[2000,346,100],[2400,426,100],[2800,366,100],[3300,466,150]],
+      coins:[370,770,1250,1750,2150,2550,3000,3500],
+      flag:[3700,600]
+    }]
+  };
+
+
+  function makeLevel(world,level){
+    const data = levels[world][level-1];
+    platforms = data.platforms.map(p=>new Rect(...p));
+    enemies = data.enemies.map(e=>new Enemy(...e));
+    coins = data.coins.map(x=>new Coin(x,300+Math.random()*200));
+    flag = new Flag(...data.flag);
+    levelWidth = data.platforms[0][2];
+    player = new Player(60,520);
+  }
+
+  function resetGame(){ score = 0; lives = 3; currentWorld=1; currentLevel=1; makeLevel(currentWorld,currentLevel); updateHUD(); }
+
+  function updateHUD(){ scoreEl.textContent = score; livesEl.textContent = lives; worldEl.textContent=currentWorld; levelEl.textContent=currentLevel; }
+
+  function getCameraX(){
+    const margin = 200; let cx = player.x - margin; if (cx < 0) cx = 0; if (cx > levelWidth - VIEW_WIDTH) cx = levelWidth - VIEW_WIDTH; return cx;
+  }
+
+  function update(){
+    player.update(platforms);
+    for (let e of enemies) e.update();
+    for (let c of coins){ if (!c.collected && c.rect().intersects(player.rect())){ c.collected = true; score += 10; updateHUD(); }}
+    for (let i=enemies.length-1;i>=0;i--){ const e = enemies[i]; if (e.rect().intersects(player.rect())){
+      if (player.vy > 3 && player.y + player.h - player.vy <= e.y){ enemies.splice(i,1); player.vy = -10; score += 25; updateHUD(); }
+      else { lives -= 1; updateHUD(); if (lives <= 0){ alert('Juego terminado. Reiniciando.'); resetGame(); return; } else { player.x = Math.max(50, player.x - 120); player.vx = -6; player.vy = -8; } }
+    }}
+    if (flag && player.rect().intersects(flag.rect())){
+      alert('¡Nivel completado! Puntos: '+score);
+      currentLevel++;
+      if (!levels[currentWorld][currentLevel-1]){ currentWorld++; currentLevel=1; if (!levels[currentWorld]){ alert('¡Has completado todos los mundos!'); resetGame(); return; } }
+      makeLevel(currentWorld,currentLevel);
+      updateHUD();
+    }
+  }
+
+  function draw(){
+  const camX = getCameraX();
+  ctx.clearRect(0,0,VIEW_WIDTH,VIEW_HEIGHT);
+  ctx.fillStyle = '#4da370'; 
+  ctx.beginPath(); 
+  ctx.ellipse(300-camX*0.2,620,500,120,0,0,Math.PI*2); 
+  ctx.fill();
+
+  ctx.beginPath(); 
+  ctx.ellipse(1200-camX*0.3,640,600,160,0,0,Math.PI*2); 
+  ctx.fill();
+
+  for (let p of platforms){
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--platform').trim() || '#8b5e3c';
+    ctx.fillRect(Math.round(p.x-camX), Math.round(p.y), p.w, p.h);
+    ctx.strokeStyle='#7a4f2b'; 
+    ctx.strokeRect(Math.round(p.x-camX), Math.round(p.y), p.w, p.h);
+  }
+
+  for (let c of coins) c.draw(ctx, camX);
+  for (let e of enemies) e.draw(ctx, camX);
+  if (flag) flag.draw(ctx, camX);
+  player.draw(ctx, camX);
+}
+
+  
+
+  function gameLoop(){ update(); draw(); requestAnimationFrame(gameLoop); }
+
+  window.addEventListener('keydown', (e)=>{ keys[e.key] = true; if (['ArrowUp','w','W'].includes(e.key)){ e.preventDefault(); } });
+  window.addEventListener('keyup', (e)=>{ keys[e.key] = false; });
+  restartBtn.addEventListener('click', ()=>{ resetGame(); });
+
+  resetGame();
+  requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
